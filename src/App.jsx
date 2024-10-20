@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import * as XLSX from 'xlsx'; // Import xlsx for Excel export
 import './App.css';
 
 // ResourceDisplay Component
@@ -16,7 +17,7 @@ const ResourceDisplay = ({ resources, session }) => {
 };
 
 // EventForm Component
-const EventForm = ({ onSubmit, availableResources }) => {
+const EventForm = ({ onSubmit }) => {
   const [events, setEvents] = useState([]);
   const [title, setTitle] = useState('');
   const [requiredResources, setRequiredResources] = useState({ projectors: 0, mikes: 0, chairs: 0, markers: 0 });
@@ -145,22 +146,56 @@ const App = () => {
         }
 
         if (sessionAssigned) {
-          const sessionEventCount = events.filter(event => event.session === session).length;
+          const sessionEventCount = events.filter((event) => event.session === session).length;
           const assignedClass = `CSE ${sessionEventCount + 1}`; // Ensure 'CSE' is part of the class name
 
-          setEvents(prevEvents => [...prevEvents, { ...event, assignedClass, session }]);
+          setEvents((prevEvents) => [...prevEvents, { ...event, assignedClass, session }]);
         } else {
           alert(`Not enough resources available for event "${event.title}" in any session.`);
         }
       });
-    } else {
-      const { requiredResources } = eventData;
-      let sessionAssigned = false;
-      let session = '';
-
-      // Similar logic for single event submission if needed.
     }
   };
+
+  const removeEvent = (index) => {
+    const eventToRemove = events[index]; // Get the event being removed
+    const { session, requiredResources } = eventToRemove;
+
+    // Restore resources for the session
+    setAvailableResources((prevResources) => {
+      const updatedSessionResources = { ...prevResources[session] };
+      Object.keys(requiredResources).forEach((resource) => {
+        updatedSessionResources[resource] += requiredResources[resource]; // Add back the resources
+      });
+
+      return {
+        ...prevResources,
+        [session]: updatedSessionResources, // Update the session resources
+      };
+    });
+
+    // Remove the event from the events list
+    setEvents(events.filter((_, i) => i !== index));
+  };
+
+  const downloadEvents = () => {
+    // Flatten events data for Excel export
+    const formattedEvents = events.map((event) => ({
+      Title: event.title,
+      AssignedClass: event.assignedClass,
+      Session: event.session,
+      Projectors: event.requiredResources.projectors,
+      Mikes: event.requiredResources.mikes,
+      Chairs: event.requiredResources.chairs,
+      Markers: event.requiredResources.markers,
+    }));
+  
+    const worksheet = XLSX.utils.json_to_sheet(formattedEvents); // Convert formatted events to sheet
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Events');
+    XLSX.writeFile(workbook, 'scheduled_events.xlsx'); // Export as Excel file
+  };
+  
 
   return (
     <div className="App bg-gray-900 min-h-screen p-8">
@@ -185,9 +220,24 @@ const App = () => {
             <p className="text-gray-300">
               Required Resources: {JSON.stringify(event.requiredResources)}
             </p>
+            <button
+              onClick={() => removeEvent(index)}
+              className="mt-2 bg-red-500 hover:bg-red-600 text-white p-2 rounded"
+            >
+              Remove
+            </button>
           </div>
         ))}
       </div>
+
+     <div className="w-full flex items-center justify-end">
+      <button
+          onClick={downloadEvents}
+          className=" bg-purple-500 font-bold hover:bg-purple-600 p-2 rounded-lg text-black  shadow-lg transition-all mt-4"
+        >
+          Download XL
+        </button>
+     </div>
     </div>
   );
 };
