@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import * as XLSX from 'xlsx'; // Import xlsx for Excel export
+import * as XLSX from 'xlsx';
 import './App.css';
 
 // ResourceDisplay Component
@@ -107,6 +107,23 @@ const EventForm = ({ onSubmit }) => {
   );
 };
 
+// Modal Component
+const Modal = ({ message, onClose }) => {
+  return (
+    <div className="fixed inset-0 flex items-center justify-center bg-black bg-opacity-50">
+      <div className="bg-gray-800 p-6 rounded-lg shadow-lg">
+        <h3 className="text-purple-500 text-lg font-bold">Error</h3>
+        <p className="text-gray-300">{message}</p>
+        <button 
+          onClick={onClose} 
+          className="mt-4 bg-purple-500 hover:bg-purple-600 p-2 rounded-lg text-white">
+          Close
+        </button>
+      </div>
+    </div>
+  );
+};
+
 // Main App Component
 const App = () => {
   const [events, setEvents] = useState([]);
@@ -115,129 +132,109 @@ const App = () => {
     afternoon: { projectors: 5, mikes: 5, chairs: 5, markers: 5 },
     evening: { projectors: 5, mikes: 5, chairs: 5, markers: 5 },
   });
+  const [modalMessage, setModalMessage] = useState('');
+  const [showModal, setShowModal] = useState(false);
 
   const handleEventSubmit = (eventData) => {
-    if (Array.isArray(eventData)) {
-      eventData.forEach((event) => {
-        const { requiredResources } = event;
-        let sessionAssigned = false;
-        let session = '';
+    const totalResources = (resources) => Object.values(resources).reduce((a, b) => a + b, 0);
+    const sortedEvents = [...eventData].sort((a, b) => totalResources(a.requiredResources) - totalResources(b.requiredResources));
 
-        for (const [key, resources] of Object.entries(availableResources)) {
-          const resourcesAvailable = Object.keys(requiredResources).every(
-            (resource) => resources[resource] >= requiredResources[resource]
-          );
+    sortedEvents.forEach((event, index) => {
+      const { requiredResources } = event;
+      let sessionAssigned = false;
+      let session = '';
 
-          if (resourcesAvailable) {
-            session = key; // Assign the session
-            sessionAssigned = true;
+      for (const [key, resources] of Object.entries(availableResources)) {
+        const hasEnoughResources = Object.entries(requiredResources).every(
+          ([resource, amount]) => resources[resource] >= amount
+        );
 
-            // Deduct resources
-            const updatedResources = { ...resources };
-            Object.keys(requiredResources).forEach((resource) => {
-              updatedResources[resource] -= requiredResources[resource];
-            });
-            setAvailableResources((prev) => ({
-              ...prev,
-              [key]: updatedResources,
-            }));
-            break; // Stop checking once a session is found
-          }
+        if (hasEnoughResources) {
+          session = key;
+          sessionAssigned = true;
+          Object.keys(requiredResources).forEach(resource => {
+            availableResources[session][resource] -= requiredResources[resource];
+          });
+          break; // Exit loop once session is assigned
         }
+      }
 
-        if (sessionAssigned) {
-          const sessionEventCount = events.filter((event) => event.session === session).length;
-          const assignedClass = `CSE ${sessionEventCount + 1}`; // Ensure 'CSE' is part of the class name
-
-          setEvents((prevEvents) => [...prevEvents, { ...event, assignedClass, session }]);
-        } else {
-          alert(`Not enough resources available for event "${event.title}" in any session.`);
-        }
-      });
-    }
+      if (!sessionAssigned) {
+        setModalMessage(`Not enough resources available for event "${event.title}".`);
+        setShowModal(true);
+      } else {
+        const assignedClass = `CSE ${index + 1}`; // Assign classes as CSE 1, CSE 2, etc.
+        setEvents((prevEvents) => [...prevEvents, { ...event, session, assignedClass }]);
+      }
+    });
   };
 
   const removeEvent = (index) => {
-    const eventToRemove = events[index]; // Get the event being removed
-    const { session, requiredResources } = eventToRemove;
+    const removedEvent = events[index];
+    const { session, requiredResources } = removedEvent;
 
-    // Restore resources for the session
-    setAvailableResources((prevResources) => {
-      const updatedSessionResources = { ...prevResources[session] };
-      Object.keys(requiredResources).forEach((resource) => {
-        updatedSessionResources[resource] += requiredResources[resource]; // Add back the resources
-      });
-
-      return {
-        ...prevResources,
-        [session]: updatedSessionResources, // Update the session resources
-      };
+    // Restore resources
+    Object.keys(requiredResources).forEach((resource) => {
+      availableResources[session][resource] += requiredResources[resource];
     });
 
-    // Remove the event from the events list
+    // Remove the event
     setEvents(events.filter((_, i) => i !== index));
   };
 
   const downloadEvents = () => {
-    // Flatten events data for Excel export
-    const formattedEvents = events.map((event) => ({
-      Title: event.title,
-      AssignedClass: event.assignedClass,
-      Session: event.session,
-      Projectors: event.requiredResources.projectors,
-      Mikes: event.requiredResources.mikes,
-      Chairs: event.requiredResources.chairs,
-      Markers: event.requiredResources.markers,
-    }));
-  
-    const worksheet = XLSX.utils.json_to_sheet(formattedEvents); // Convert formatted events to sheet
-    const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, 'Events');
-    XLSX.writeFile(workbook, 'scheduled_events.xlsx'); // Export as Excel file
+    const worksheet = XLSX.utils.json_to_sheet(events); // Convert events to a worksheet
+    const workbook = XLSX.utils.book_new(); // Create new workbook
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Events'); // Append sheet to workbook
+    XLSX.writeFile(workbook, 'events.xlsx'); // Save as Excel file
   };
-  
+
+  const handleCloseModal = () => {
+    setShowModal(false); // Close the modal
+    setModalMessage(''); // Clear the message
+  };
 
   return (
-    <div className="App bg-gray-900 min-h-screen p-8">
-      <h1 className="text-3xl text-purple-500 font-bold mb-8">Event Scheduler</h1>
+    <div className="p-8 bg-gray-900 min-h-screen">
+      <h1 className="text-purple-500 text-3xl font-bold mb-8">Event Scheduler</h1>
+      <ResourceDisplay resources={availableResources.morning} session="morning" />
+      <ResourceDisplay resources={availableResources.afternoon} session="afternoon" />
+      <ResourceDisplay resources={availableResources.evening} session="evening" />
+      <EventForm onSubmit={handleEventSubmit} />
 
-      {Object.entries(availableResources).map(([session, resources]) => (
-        <ResourceDisplay key={session} resources={resources} session={session.charAt(0).toUpperCase() + session.slice(1)} />
-      ))}
+      {events.length > 0 && (
+        <div className="bg-gray-800 p-6 rounded-lg shadow-lg mb-8">
+          <h2 className="text-purple-500 text-2xl font-bold mb-4">Scheduled Events</h2>
+          {events.map((event, index) => (
+            <div key={index} className="bg-gray-900 p-4 rounded-lg mb-4">
+              <h4 className="text-purple-500 text-lg">{event.title}</h4>
+              <p className="text-gray-300">Assigned Session: {event.session}</p>
+              <h5 className="text-purple-400">Required Resources:</h5>
+              <ul className="list-disc pl-5 text-gray-300">
+                {Object.entries(event.requiredResources).map(([resource, count]) => (
+                  <li key={resource}>
+                    {resource.charAt(0).toUpperCase() + resource.slice(1)}: {count}
+                  </li>
+                ))}
+              </ul>
+              <button
+                onClick={() => removeEvent(index)}
+                className="mt-2 bg-red-500 hover:bg-red-600 p-2 rounded-lg text-white"
+              >
+                Remove Event
+              </button>
+            </div>
+          ))}
+          <button
+            onClick={downloadEvents}
+            className="mt-4 bg-green-500 hover:bg-green-600 p-2 rounded-lg text-white"
+          >
+            Download Events
+          </button>
+        </div>
+      )}
 
-      <EventForm
-        onSubmit={handleEventSubmit}
-        availableResources={availableResources}
-      />
-
-      <h2 className="text-xl text-purple-400 mt-8">Scheduled Events:</h2>
-      <div>
-        {events.map((event, index) => (
-          <div key={index} className="bg-gray-800 p-4 rounded-lg mb-4">
-            <h3 className="text-purple-500 text-lg">{event.title}</h3>
-            <p className="text-gray-300">Assigned Class: {event.assignedClass}</p>
-            <p className="text-gray-300">Session: {event.session.charAt(0).toUpperCase() + event.session.slice(1)}</p>
-            <p className="text-gray-300">
-              Required Resources: {JSON.stringify(event.requiredResources)}
-            </p>
-            <button
-              onClick={() => removeEvent(index)}
-              className="mt-2 bg-red-500 hover:bg-red-600 text-white p-2 rounded"
-            >
-              Remove
-            </button>
-          </div>
-        ))}
-      </div>
-
-     <div className="w-full flex items-center justify-end">
-      <button
-          onClick={downloadEvents}
-          className=" bg-purple-500 font-bold hover:bg-purple-600 p-2 rounded-lg text-black  shadow-lg transition-all mt-4"
-        >
-          Download XL
-        </button>
-     </div>
+      {showModal && <Modal message={modalMessage} onClose={handleCloseModal} />}
     </div>
   );
 };
